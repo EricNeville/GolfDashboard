@@ -9,7 +9,10 @@ import pandas as pd
 import numpy as np 
 import plotly.graph_objects as go
 import glob
+import re
 import json
+import datetime
+import os
 
 app = dash.Dash(
     external_stylesheets=[dbc.themes.BOOTSTRAP]
@@ -40,15 +43,18 @@ def render_content(tab):
     print(tab)
     if tab == 'score-tab':
         return html.Div([
-            html.Button("Reload Course Options", id= "course_reset", style = {"margin-bottom":20}),
+            html.H5("Warning: Changing tabs will clear an unsubmitted scorecard"),
+            html.Button("Reload Course Options", id= "course_reset", style = {"margin-bottom":20, "margin-top":20}),
             html.Div(children = [
                 dcc.Dropdown(id = "course_select", placeholder = "Select Course"),
                 dcc.Dropdown(id = "tee_select", placeholder = "Select Tees")],
                 style = {"width": "25%" }
             ),
+            html.Button("Submit Card", id= "score_submit", style = {"margin-top":20}),
+            html.Div(id = "Submission"),
             html.Div(id = "scorecard", style = {"padding":100}),
             html.Div(id = "course_options", style = {"display":"none"})
-        ])
+        ], style = {"padding":50})
 
     elif tab == 'stats-tab':
         return html.Div([
@@ -115,8 +121,50 @@ def show_scorecard(tee, course):
                                      )
         return table
     else:
-        return None
+        table = dash_table.DataTable(id = "card", 
+                             columns = [], 
+                             data = []
+                             )
+        return table
 
+
+
+@app.callback(
+    Output(component_id = "Submission", component_property = "children"),
+    [Input(component_id = "score_submit", component_property = "n_clicks"),
+     Input(component_id = "scorecard", component_property = "children")],
+    [State(component_id = "course_select", component_property = "value"),
+    State(component_id = "course_select", component_property = "value"),
+    State(component_id = "card", component_property = "data")]
+)
+def submit(button, card, course, tee, data):
+    print("SUBMIT RUNS")
+    ctx = dash.callback_context
+    if len(ctx.triggered) > 0:
+        print(ctx.triggered[0]["prop_id"])
+        if ctx.triggered[0]["prop_id"] == "scorecard.children":
+            return ""
+    if data == []:
+        return "No scorecard active. Select a course and tees to enter a card."
+
+    drives = [row["Drive"] for row in data]
+    strokes = [row["Strokes"] for row in data]
+    putts = [row["Putts"] for row in data]
+    if "" in drives + strokes + putts:
+        return "Scorecard Incomplete. Please fill in missing fields."
+    elif sum([s.isnumeric() for s in strokes]) != len(strokes):
+        return "Non-numeric stroke value entered. Please enter only numeric scores."
+    elif sum([s.isnumeric() for s in putts]) != len(putts):
+        return "Non-numeric putts value entered. Please enter only numeric putts."
+    else:
+        now = datetime.datetime.now()
+        date = now.strftime("%d%m%Y")
+        time = now.strftime("%H:%M:%S")
+        course = course.replace(" ", "")
+        directory = f"Recorded/{course}/{tee}"
+        os.makedirs(directory, exist_ok = True)
+
+        return f"Card Saved at {time}"
 
 if __name__ == "__main__":
     app.run_server()
