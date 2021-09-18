@@ -349,7 +349,8 @@ def par_plot(data):
         overall = cards.Strokes.mean()
         cards = cards.groupby("Par").mean().reset_index(drop = False)
         cards = cards.append({"Par":"Overall", "Strokes":overall}, ignore_index = True).sort_values("Par")
-        fig = px.bar(cards, x="Par", y="Strokes", text = "Strokes")
+        cards["str"] = cards["Strokes"].apply(lambda x: f"{x:.2f}")
+        fig = px.bar(cards, x="Par", y="Strokes", text = "str")
         fig.update_xaxes(title_text = "")
         fig.update_yaxes(title_text = "Average Strokes", range = [0, 2*cards.Strokes.max()])
         return [html.H3("Average Strokes"), html.Center(dcc.Graph(figure = fig, style={'width': '80vw'}))]
@@ -368,7 +369,8 @@ def putts_plot(data):
         overall = cards.Putts.mean()
         cards = cards.groupby("Par").mean().reset_index(drop = False)
         cards = cards.append({"Par":"Overall", "Putts":overall}, ignore_index = True).sort_values("Par")
-        fig = px.bar(cards, x="Par", y="Putts", text = "Putts")
+        cards["str"] = cards["Putts"].apply(lambda x: f"{x:.2f}")
+        fig = px.bar(cards, x="Par", y="Putts", text = "str")
         fig.update_xaxes(title_text = "")
         fig.update_yaxes(title_text = "Average Putts", range = [0, 2*cards.Putts.max()])
         return [html.H3("Average Putts"), html.Center(dcc.Graph(figure = fig, style={'width': '80vw'}))]
