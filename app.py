@@ -102,7 +102,8 @@ def render_content(tab):
     elif tab == 'handicap-tab':
         return html.Div([
             html.Button("Reload Scorecards", id= "scorecard_reset", style = {"margin-bottom":20, "margin-top":20}),
-            html.Div(id = "handicap_bar")
+            html.Div(id = "strokes_bar"),
+            html.Div(id = "index_bar")
         ], style = {"padding":50})
 
 
@@ -151,7 +152,7 @@ def show_scorecard(tee, course):
     if isinstance(course, str) & isinstance(tee, str) & (course != "") & (tee != ""):
         course = course.replace(" ", "_")
         path = f"Courses/{course}_{tee}.csv"
-        card = pd.read_csv(path).fillna("")
+        card = pd.read_csv(path, usecols = ["Hole","Par","Index","Yardage","Strokes","Putts","Tee Shot"]).fillna("")
         cols = list(card.columns)
         table = dash_table.DataTable(id = "card", 
                                      columns = [{"name":i, "id":i, "editable": False} for i in cols[0:4]] +\
@@ -263,7 +264,7 @@ def load_scores(button, tees, start, end):
         if files == []:
             return [], "No recorded scores satisfying filters."
         else:    
-            scores = [pd.read_csv(file).to_json(orient = "split") for file in files]
+            scores = [pd.read_csv(file, usecols = ["Hole","Par","Index","Yardage","Strokes","Putts","Tee Shot"]).to_json(orient = "split") for file in files]
             return json.dumps(dict(zip(files,scores))), ""
     elif dash.callback_context.triggered[0]["prop_id"] == ".":
         return [], ""
@@ -405,13 +406,31 @@ def whs_cards(n):
 
     
 @app.callback(
-    Output(component_id = "handicap_bar", component_property = "children"),
+    [Output(component_id = "strokes_bar", component_property = "children"),
+     Output(component_id = "index_bar", component_property = "children")],
     Input(component_id = "scorecard_reset", component_property = "n_clicks")
     )
 def handicap_cards(button):
     all_cards = sorted(glob.glob("Recorded/*/*/*"), key = lambda x: datetime.datetime.strptime(x.split("\\")[-1].split(".")[0], "%d%m%Y").date(), reverse = True)[:20]
-    n_lowest, adjustment = whs_cards(len(all_cards))
-    return f"{len(all_cards)} cards returned. Handicap will be average of lowest {n_lowest} plus adjustment of {adjustment:.0f}"
+    if True:#len(all_cards)>=3:
+        #n_lowest, adjustment = whs_cards(len(all_cards))
+        cards = [pd.read_csv(card) for card in all_cards[::-1]]
+        slopes = [card.Slope.iloc[0] for card in cards]
+        ratings = [card.Course.iloc[0] for card in cards]
+        scores = [card.Strokes.sum() for card in cards]
+        index = [(scores[i]-ratings[i])*113/slopes[i] for i in range(len(scores))]
+        results_df = pd.DataFrame({"Strokes":scores, "Index": index})
+        
+        fig1 = px.bar(results_df, x=results_df.index, y="Strokes", text = "Strokes")
+        fig1.update_xaxes(title_text = "", showticklabels = False)
+        fig1.update_yaxes(title_text = "Strokes", range = [0, results_df.Strokes.max()+10])
+        fig2 = px.bar(results_df, x=results_df.index, y="Index", text = results_df.Index.apply(lambda x: f"{x:.2f}"))
+        fig2.update_xaxes(title_text = "", showticklabels = False)
+        fig2.update_yaxes(title_text = "Handicap Index", range = [0, results_df.Index.max()+5])        
+        return [html.H3("Handicap Rounds: Strokes"), html.Center(dcc.Graph(figure = fig1, style={'width': '80vw'}))],\
+                [html.H3("Handicap Rounds: Index"), html.Center(dcc.Graph(figure = fig2, style={'width': '80vw'}))]      
+
+        return #f"{len(all_cards)} cards returned. Handicap will be average of lowest {n_lowest} plus adjustment of {adjustment:.0f}"
 
 
  
