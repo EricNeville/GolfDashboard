@@ -1,7 +1,7 @@
 '''
 TODO:
 
-Make scorecard a class with card, slope, par etc as attributes
+Record % of birdies, pars, etc
 '''
 
 
@@ -93,6 +93,7 @@ def render_content(tab):
             html.Div(id = "driving_accuracy_bar", style = {"margin-top":20}), 
             html.Div(id = "par3_accuracy_bar", style = {"margin-top":20}), 
             html.Div(id = "gir_bar"),
+            html.Div(id = "scores%_bar"),
             html.Div(id = "strokes_by_par_bar"),
             html.Div(id = "putts_by_par_bar"),
             html.Div(id = "course_options2", style = {"display":"none"}),
@@ -342,6 +343,38 @@ def gir_plot(data):
         return [html.H3("Greens in Regulation"), html.Center(dcc.Graph(figure = fig, style={'width': '80vw'}))]
     else:
         return []
+
+
+score_dict = {-3:"Albatross", -2:"Eagle", -1:"Birdie", 0:"Par", 1:"Bogey", 2:"Double", 3:"Triple", 4:"Worse than triple"}
+reverse_dict = {v:k for k,v in score_dict.items()}
+def score_map(n):
+    if n<=3 in score_dict.keys():
+        return score_dict[n]
+    elif n > 3: return "Worse than triple"
+
+
+@app.callback(
+    Output(component_id = "scores%_bar", component_property = "children"),
+    Input(component_id = "scores", component_property = "children")
+    )
+def scores_plot(data):
+    if data != []:
+        cards = pd.concat([pd.read_json(df, orient = "split")[["Par", "Strokes"]] for df in json.loads(data).values()])
+        cards["Score"] = cards.apply(lambda x: score_map(x["Strokes"]-x["Par"]), axis = 1)
+        cards = cards.groupby("Score").size().reset_index(name = "%")
+        cards["%"] = cards["%"].divide(cards["%"].sum()).multiply(100)
+        cards["str"] = cards["%"].apply(lambda x: f"{x:.0f}%")
+        cards["order"] = cards['Score'].replace(reverse_dict)
+        cards = cards.sort_values("order")
+        fig = px.bar(cards, x="Score", y="%", text = "str")
+        fig.update_xaxes(title_text = "")
+        fig.update_yaxes(range=[0,100], title_text = "Proportion (%)")
+        return [html.H3("Score Type %"), html.Center(dcc.Graph(figure = fig, style={'width': '80vw'}))]
+    else:
+        return []
+
+
+
 
 
 @app.callback(
