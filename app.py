@@ -70,7 +70,7 @@ def render_content(tab):
             html.Div(id = "Submission"),
             html.Div(id = "scorecard", style = {"padding":100}),
             html.Div(id = "course_options", style = {"display":"none"})
-        ], style = {"padding":50})
+        ], style = {"padding":100})
 
     elif tab == 'stats-tab':
         return html.Div([
@@ -97,14 +97,14 @@ def render_content(tab):
             html.Div(id = "putts_by_par_bar"),
             html.Div(id = "course_options2", style = {"display":"none"}),
             html.Div(id = "scores", style = {"display":"none"})
-        ], style = {"padding":50})
+        ], style = {"padding":100})
 
     elif tab == 'handicap-tab':
         return html.Div([
             html.Button("Reload Scorecards", id= "scorecard_reset", style = {"margin-bottom":20, "margin-top":20}),
             html.Div(id = "strokes_bar"),
             html.Div(id = "index_bar")
-        ], style = {"padding":50})
+        ], style = {"padding":100})
 
 
 
@@ -154,6 +154,7 @@ def show_scorecard(tee, course):
         path = f"Courses/{course}_{tee}.csv"
         card = pd.read_csv(path, usecols = ["Hole","Par","Index","Yardage","Strokes","Putts","Tee Shot"]).fillna("")
         cols = list(card.columns)
+        print(card)
         table = dash_table.DataTable(id = "card", 
                                      columns = [{"name":i, "id":i, "editable": False} for i in cols[0:4]] +\
                                                [{"name":i, "id":i} for i in cols[4:6]] +\
@@ -203,8 +204,12 @@ def submit(button, card, course, tee, data):
         time = now.strftime("%H:%M:%S")
         directory = f"Recorded/{course}/{tee}"
         os.makedirs(directory, exist_ok = True)
+        course = course.replace(" ", "_")
+        path = f"Courses/{course}_{tee}.csv"
+        ratings = pd.read_csv(path, usecols = ["Slope", "Course"])
         card_df = pd.DataFrame(columns = data[0].keys(), data = [row.values() for row in data])
         card_df = card_df[["Hole", "Par", "Index", "Yardage", "Strokes", "Putts", "Tee Shot"]]
+        card_df = pd.concat([card_df, ratings], axis = 1)
         card_df.to_csv(directory + "/" + date + ".csv", index = False)
         return f"Card Saved at {time}"
 
@@ -412,25 +417,29 @@ def whs_cards(n):
     )
 def handicap_cards(button):
     all_cards = sorted(glob.glob("Recorded/*/*/*"), key = lambda x: datetime.datetime.strptime(x.split("\\")[-1].split(".")[0], "%d%m%Y").date(), reverse = True)[:20]
-    if True:#len(all_cards)>=3:
-        #n_lowest, adjustment = whs_cards(len(all_cards))
+    if len(all_cards)>=3:
+        n_lowest, adjustment = whs_cards(len(all_cards))
         cards = [pd.read_csv(card) for card in all_cards[::-1]]
         slopes = [card.Slope.iloc[0] for card in cards]
         ratings = [card.Course.iloc[0] for card in cards]
         scores = [card.Strokes.sum() for card in cards]
         index = [(scores[i]-ratings[i])*113/slopes[i] for i in range(len(scores))]
         results_df = pd.DataFrame({"Strokes":scores, "Index": index})
+        cutoff = list(results_df.sort_values("Index").iloc[:n_lowest,:].index)
+        results_df["included"] = [x in cutoff for x in results_df.index]
+        hcp = results_df.Index[results_df.included == True].mean()+adjustment
+        colours = ["green" if x else "blue" for x in results_df.included]
         
-        fig1 = px.bar(results_df, x=results_df.index, y="Strokes", text = "Strokes")
+        fig1 = px.bar(results_df, x=results_df.index, y="Strokes", text = "Strokes", color = colours, color_discrete_map = "identity")
         fig1.update_xaxes(title_text = "", showticklabels = False)
         fig1.update_yaxes(title_text = "Strokes", range = [0, results_df.Strokes.max()+10])
-        fig2 = px.bar(results_df, x=results_df.index, y="Index", text = results_df.Index.apply(lambda x: f"{x:.2f}"))
+        fig2 = px.bar(results_df, x=results_df.index, y="Index", text = results_df.Index.apply(lambda x: f"{x:.2f}"), color = colours, color_discrete_map = "identity")
         fig2.update_xaxes(title_text = "", showticklabels = False)
         fig2.update_yaxes(title_text = "Handicap Index", range = [0, results_df.Index.max()+5])        
-        return [html.H3("Handicap Rounds: Strokes"), html.Center(dcc.Graph(figure = fig1, style={'width': '80vw'}))],\
-                [html.H3("Handicap Rounds: Index"), html.Center(dcc.Graph(figure = fig2, style={'width': '80vw'}))]      
-
-        return #f"{len(all_cards)} cards returned. Handicap will be average of lowest {n_lowest} plus adjustment of {adjustment:.0f}"
+        return [html.H3(f"Handicap: {hcp:.1f}"), html.Center(dcc.Graph(figure = fig1, style={'width': '80vw'}))],\
+                [html.Center(dcc.Graph(figure = fig2, style={'width': '80vw'}))]      
+    else:
+        return "Not enough scores recorded", []
 
 
  
