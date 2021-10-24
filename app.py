@@ -1,7 +1,7 @@
 '''
 TODO:
 
-Record % of birdies, pars, etc
+Use dcc.Store to persist choices instead of html.Div
 '''
 
 
@@ -46,7 +46,8 @@ app = dash.Dash(
 app.layout = html.Div([
     dcc.Tabs(id = "tabs", value = "score-tab", children = [
         dcc.Tab(label = "Enter Score", value = "score-tab"),
-        dcc.Tab(label = "Stats", value = "stats-tab"),
+        dcc.Tab(label = "Summary Stats", value = "stats-tab"),
+        dcc.Tab(label = "Round-by-Round Stats", value = "round-stats-tab"),
         dcc.Tab(label = "Handicap", value = "handicap-tab")
     ]),
     html.Div(id = "tab-content")
@@ -99,7 +100,16 @@ def render_content(tab):
             html.Div(id = "course_options2", style = {"display":"none"}),
             html.Div(id = "scores", style = {"display":"none"})
         ], style = {"padding":100})
-
+    elif tab == 'round-stats-tab':
+        return html.Div([
+            html.Button("Reload Data", id = "round-stats-reset", style = {"margin-bottom":20, "margin-top":20}),
+            dcc.Dropdown(id = "n_rounds", placeholder = "Number of rounds to include"),
+            html.Div(id = "driving_accuracy_bar2", style = {"margin-top":20}), 
+            html.Div(id = "par3_accuracy_bar2", style = {"margin-top":20}),
+            html.Div(id = "gir_bar2", style = {"margin-top":20}),
+            html.Div(id = "recent_rounds_data", style = {"display":"none"}),
+            html.Div(id = "scores_2", style = {"display":"none"})
+        ], style = {"padding":100})
     elif tab == 'handicap-tab':
         return html.Div([
             html.Button("Reload Scorecards", id= "scorecard_reset", style = {"margin-bottom":20, "margin-top":20}),
@@ -331,7 +341,7 @@ def par3_accuracy_bar_plot(data):
 def gir_plot(data):
     if data != []:
         cards = pd.concat([pd.read_json(df, orient = "split")[["Par", "Strokes", "Putts"]] for df in json.loads(data).values()])
-        cards["GIR"] = cards["Par"]-(cards["Strokes"]-cards["Putts"]) == 2 
+        cards["GIR"] = cards["Par"]-(cards["Strokes"]-cards["Putts"]) >= 2 
         GIR = 100*cards["GIR"].sum()/len(cards)
         cards = cards[["Par", "GIR"]].groupby("Par").sum().divide(cards[["Par", "GIR"]].groupby("Par").size(), axis = 0).multiply(100).reset_index(drop = False)
         cards["Par"] = cards["Par"].apply(lambda x: f"Par {x:.0f}")
@@ -475,7 +485,150 @@ def handicap_cards(button):
         return "Not enough scores recorded", []
 
 
+@app.callback(
+    [Output(component_id = "n_rounds", component_property = "options"),
+     Output(component_id = "recent_rounds_data", component_property = "children")],
+    Input(component_id = "round-stats-reset", component_property = "n_clicks")
+    )
+def recent_rounds_options(button):
+        all_cards = sorted(glob.glob("Recorded/*/*/*"), key = lambda x: datetime.datetime.strptime(x.split("\\")[-1].split(".")[0], "%d%m%Y").date(), reverse = True)
+        paths_dict = dict(enumerate(all_cards))
+        options = [{"label": i+1, "value": i+1} for i in range(len(all_cards))]
+        return options, json.dumps(all_cards)
+
  
+
+@app.callback(
+    Output(component_id = "scores_2", component_property = "children"),
+    Input(component_id = "n_rounds", component_property = "value"),
+    State(component_id = "recent_rounds_data", component_property = "children")
+    )
+def load_scores2(num, paths):
+    print("new load scores runs")
+    if paths != None:
+        paths_dict = json.loads(paths)
+        chosen_paths = [paths_dict[i] for i in range(num)] 
+        scores = [pd.read_csv(file, usecols = ["Hole","Par","Index","Yardage","Strokes","Putts","Tee Shot"]) for file in chosen_paths]
+        chosen_paths = ["/".join([path[-12:-10],path[-10:-8],path[-8:-4]]) for path in chosen_paths]
+        if scores != []:
+            for date, j in zip(chosen_paths, range(len(scores))):
+                scores[j]["Round Index"] = date
+        if scores != []:
+            scores = pd.concat(scores)      
+        return json.dumps({"data":scores.to_json(orient = "split")})
+    else:
+        return []
+
+
+
+@app.callback(
+    Output(component_id = "driving_accuracy_bar2", component_property = "children"),
+    Input(component_id = "scores_2", component_property = "children")
+    )
+def driving_accuracy_bar_plot2(data):
+    if data != []:
+        cards = pd.read_json(json.loads(data)["data"], orient = "split")
+        cards = cards[cards["Par"] != 3].groupby(["Round Index","Tee Shot"]).size().reset_index(name = "%")
+        labels = dict(zip(["Wide Left", "Narrow Left", "Straight", "Narrow Right", "Wide Right"], [0,1,2,3,4]))
+        new_cards = []
+        for i in sorted(cards["Round Index"].unique(), key = lambda x: 400*int(x.split("/")[2])+31*int(x.split("/")[1])+int(x.split("/")[0])):
+            df = cards[cards["Round Index"] == i]
+            for label in labels.keys():
+                if label not in df["Tee Shot"].values:
+                    df = df.append({"Round Index":i, "Tee Shot": label, "%": 0}, ignore_index=True)
+            df = df.sort_values("Tee Shot", key = lambda x: x.apply(lambda y: labels[y]))
+            new_cards.append(df)
+        cards = pd.concat(new_cards)
+        cards["%"] = cards.groupby("Round Index")["%"].transform(lambda df: df.divide(df.sum()).multiply(100)).values
+        cards["str"] = cards["%"].apply(lambda x: f"{x:.0f}%")
+        fig = px.bar(cards, x="Tee Shot", y="%", text = "str",
+                 color="Round Index", barmode="group")
+        fig.update_yaxes(range=[0,100], title_text = "Proportion (%)")
+        fig.update_xaxes(title_text = "")
+        return [html.H3("Driving Accuracy"), html.Center(dcc.Graph(figure = fig, style={'width': '80vw'}))]
+    else:
+        return []
+
+
+@app.callback(
+    Output(component_id = "par3_accuracy_bar2", component_property = "children"),
+    Input(component_id = "scores_2", component_property = "children")
+    )
+def par3_accuracy_bar_plot2(data):
+    if data != []:
+        cards = pd.read_json(json.loads(data)["data"], orient = "split")
+        cards = cards[cards["Par"] == 3].groupby(["Round Index","Tee Shot"]).size().reset_index(name = "%")
+        labels = dict(zip(["Wide Left", "Narrow Left", "Straight", "Narrow Right", "Wide Right"], [0,1,2,3,4]))
+        new_cards = []
+        for i in sorted(cards["Round Index"].unique(), key = lambda x: 400*int(x.split("/")[2])+31*int(x.split("/")[1])+int(x.split("/")[0])):
+            df = cards[cards["Round Index"] == i]
+            for label in labels.keys():
+                if label not in df["Tee Shot"].values:
+                    df = df.append({"Round Index":i, "Tee Shot": label, "%": 0}, ignore_index=True)
+            df = df.sort_values("Tee Shot", key = lambda x: x.apply(lambda y: labels[y]))
+            new_cards.append(df)
+        cards = pd.concat(new_cards)
+        cards["%"] = cards.groupby("Round Index")["%"].transform(lambda df: df.divide(df.sum()).multiply(100)).values
+        cards["str"] = cards["%"].apply(lambda x: f"{x:.0f}%")
+        fig = px.bar(cards, x="Tee Shot", y="%", text = "str",
+                 color="Round Index", barmode="group")
+        fig.update_yaxes(range=[0,100], title_text = "Proportion (%)")
+        fig.update_xaxes(title_text = "")
+        return [html.H3("Par 3 Accuracy"), html.Center(dcc.Graph(figure = fig, style={'width': '80vw'}))]
+    else:
+        return []
+
+
+
+par_sort_dict = {"Overall":0, "3":0.1, "4":0.2, "5":0.3}
+
+def test_sort(x):
+    print(x)
+    return 1
+
+
+@app.callback(
+    Output(component_id = "gir_bar2", component_property = "children"),
+    Input(component_id = "scores_2", component_property = "children")
+    )
+def gir_plot2(data):
+    print("gir_plot2 runs")
+    if data != []:
+        cards = pd.read_json(json.loads(data)["data"], orient = "split")
+        cards["GIR"] = cards["Par"]-(cards["Strokes"]-cards["Putts"]) >= 2 
+        GIR_by_round = cards[["Round Index", "GIR"]].groupby("Round Index").apply(lambda x: 100*x.sum()/len(x)).reset_index(drop = False) 
+        GIR_by_round["Par"] = "Overall"   
+        cards = cards[["Par", "Round Index", "GIR"]].groupby(["Round Index","Par"]).apply(lambda x: 100*x.sum()/len(x)).reset_index(drop = False)
+        cards["Par"] = cards["Par"].apply(lambda x: f"Par {x:.0f}")
+        cards = pd.concat([GIR_by_round, cards]).sort_values(["Round Index", "Par"], key = lambda x: x.apply(lambda y: par_sort_dict[y] if y in par_sort_dict.keys() else f"{y[-4:]}/{y[3:5]}/{y[0:2]}"))#lambda x: 400*int(x[0].split("/")[2])+31*int(x[0].split("/")[1])+int(x[0].split("/")[0])+par_sort_dict[x[1]])
+        cards["str"] = cards["GIR"].apply(lambda x: f"{x:.0f}%")
+        fig = px.bar(cards, x="Par", y="GIR", color = "Round Index", barmode = "group", text = "str")
+        fig.update_yaxes(range=[0,100], title_text = "GIR Proportion (%)")
+        fig.update_xaxes(title_text = "")
+        return [html.H3("Greens in Regulation"), html.Center(dcc.Graph(figure = fig, style={'width': '80vw'}))]
+    else:
+        return []
+
+# @app.callback(
+#     Output(component_id = "gir_bar2", component_property = "children"),
+#     Input(component_id = "scores_2", component_property = "children")
+#     )
+# def gir_plot(data):
+#     if data != []:
+#         cards = pd.read_json(json.loads(data)["data"], orient = "split")[["Par", "Strokes", "Putts"]]
+#         cards["GIR"] = cards["Par"]-(cards["Strokes"]-cards["Putts"]) >= 2 
+#         GIR = 100*cards["GIR"].sum()/len(cards)
+#         cards = cards[["Par", "GIR"]].groupby("Par").sum().divide(cards[["Par", "GIR"]].groupby("Par").size(), axis = 0).multiply(100).reset_index(drop = False)
+#         cards["Par"] = cards["Par"].apply(lambda x: f"Par {x:.0f}")
+#         cards = cards.append({"Par": "Overall", "GIR": GIR}, ignore_index = True).sort_values("Par")
+#         cards["str"] = cards["GIR"].apply(lambda x: f"{x:.0f}%")
+#         fig = px.bar(cards, x="Par", y="GIR", text = "str")
+#         fig.update_yaxes(range=[0,100], title_text = "GIR Proportion (%)")
+#         fig.update_xaxes(title_text = "")
+#         return [html.H3("Greens in Regulation"), html.Center(dcc.Graph(figure = fig, style={'width': '80vw'}))]
+#     else:
+#         return []
+
 
 
 if __name__ == "__main__":
