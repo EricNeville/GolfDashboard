@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This is an interactive dashboard for tracking and analysing golf scores. Scorecards for desired courses should be created and stored with the same form and naming convention as those in the "Courses" folder here.
+This is an interactive dashboard for tracking and analysing golf scores. Scorecards for desired courses should be created and stored with the same form and naming convention as those in the "Courses" folder here. Once courses have been created just run the "app.py" file in cmd and go to the url specified in the output.
 
 ## Scorecard submit tab
 Submit scores for any courses for which you have created scorecards. Including tracking of putts and driving accuracy.
