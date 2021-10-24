@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This is an interactive dashboard for tracking and analysing golf scores. 
+This is an interactive dashboard for tracking and analysing golf scores. Scorecards for desired courses should be created and stored with the same form and naming convention as those in the "Courses" folder here.
 
 ## Scorecard submit tab
 ![tab1](https://user-images.githubusercontent.com/52505873/133941302-4225f0a8-45eb-46ed-9823-4e6094f2dc8b.PNG)
